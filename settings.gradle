@@ -1,0 +1,12 @@
+pluginManagement {
+    repositories {
+        jcenter()
+        maven {
+            url "file://$rootProject.projectDir/repo"
+        }
+    }
+}
+
+rootProject.name = 'kotlin-ir-plugin'
+include 'sample-app'
+
