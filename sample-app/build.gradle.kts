@@ -22,6 +22,10 @@ val conf = configurations.create("kotlinPlugin")
 dependencies {
     implementation(kotlin("stdlib-jdk8"))
     add("kotlinPlugin", project(path = ":"))
+
+    testImplementation(kotlin("test"))
+    testImplementation(kotlin("test-junit"))
+    testImplementation("com.willowtreeapps.assertk:assertk-jvm:0.17")
 }
 
 tasks.withType<KotlinCompile>().configureEach {

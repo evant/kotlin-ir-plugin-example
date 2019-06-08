@@ -9,16 +9,18 @@ import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
 import org.jetbrains.kotlin.backend.jvm.extensions.IrLoweringExtension
 import org.jetbrains.kotlin.com.intellij.mock.MockProject
 import org.jetbrains.kotlin.com.intellij.openapi.project.Project
+import org.jetbrains.kotlin.com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.compiler.plugin.ComponentRegistrar
 import org.jetbrains.kotlin.config.CompilerConfiguration
-import org.jetbrains.kotlin.ir.IrStatement
-import org.jetbrains.kotlin.ir.builders.irBlockBody
-import org.jetbrains.kotlin.ir.builders.irReturn
+import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.builders.irString
 import org.jetbrains.kotlin.ir.declarations.IrFile
-import org.jetbrains.kotlin.ir.declarations.IrFunction
-import org.jetbrains.kotlin.ir.expressions.IrBody
+import org.jetbrains.kotlin.ir.expressions.IrCall
+import org.jetbrains.kotlin.ir.util.addArguments
+import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformer
+import org.jetbrains.kotlin.psi.psiUtil.elementsInRange
+import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 
 class MyPluginRegistrar : ComponentRegistrar {
     override fun registerProjectComponents(project: MockProject, configuration: CompilerConfiguration) {
@@ -45,29 +47,35 @@ class MyPhase : CompilerPhase<JvmBackendContext, IrFile, IrFile> {
         context: JvmBackendContext,
         input: IrFile
     ): IrFile {
-        return input.transform(MyTransform(context), Unit)
+        return input.transform(AssertkAssertTransform(context, input), Unit)
     }
 }
 
-class MyTransform(val context: JvmBackendContext) : IrElementTransformer<Unit> {
-    override fun visitFunction(declaration: IrFunction, data: Unit): IrStatement {
-        if (declaration.name.asString() == "magic") {
-            return declaration.transform(MagicTransform(context, declaration), Unit)
+class AssertkAssertTransform(val context: JvmBackendContext, val file: IrFile) : IrElementTransformer<Unit> {
+    override fun visitCall(expression: IrCall, data: Unit): IrElement {
+        if (expression.descriptor.fqNameSafe.asString() == "assertk.assertThat") {
+            val name = expression.descriptor.valueParameters.find { it.name.asString() == "name" }!!
+            val nameArg = expression.getArguments().find { (d, e) -> d.name.asString() == "name" }
+            // skip if name arg is defined
+            if (nameArg != null) {
+                return super.visitCall(expression, data)
+            }
+            // Obtain source for expression passed in
+            val file = context.psiSourceManager.getKtFile(file)!!
+            val sourceExpr = file.elementsInRange(TextRange(expression.startOffset, expression.endOffset))[0]
+            var arg = sourceExpr.children[1].children[0]
+            // if we have actual = expr, get the second part
+            if (arg.children.size > 1) {
+                arg = arg.children.last()
+            }
+            expression.addArguments(
+                listOf(
+                    name to context.createIrBuilder(expression.symbol).irString(arg.text)
+                )
+            )
+            return super.visitCall(expression, data)
         } else {
-            return super.visitFunction(declaration, data)
-        }
-    }
-}
-
-class MagicTransform(val context: JvmBackendContext, val function: IrFunction) : IrElementTransformer<Unit> {
-
-    override fun visitBody(body: IrBody, data: Unit): IrBody {
-        return context.createIrBuilder(
-            function.symbol,
-            startOffset = function.startOffset,
-            endOffset = function.endOffset
-        ).irBlockBody {
-            +irReturn(irString("magic"))
+            return super.visitCall(expression, data)
         }
     }
 }
